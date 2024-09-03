@@ -174,6 +174,7 @@ static int fentry_set_attach_target(struct smbiosnoop_bpf *obj)
 	err = err   ?:
 		      bpf_program__set_attach_target(obj->progs.smb_network_req_fentry, 0,
 						     "compound_send_recv");
+
 	return err;
 }
 
@@ -195,7 +196,7 @@ static void print_headers()
 	else
 		printf("Hit Ctrl-C to end.\n");
 
-	printf("%-14s %-7s %-10s %-10s %15s %15s %16s %30s\n", "TASK", "PID", "ERR_TYPE",
+	printf("%-14s %-7s %-10s %-10s %15s %15s %10s %30s\n", "TASK", "PID", "ERR_TYPE",
 	       "NUM_RQST", "SESSION_ID", "CONN_ID", "COMMAND", "PARAMS");
 }
 
@@ -208,18 +209,19 @@ static void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 		return;
 	}
 
-    memcpy(&e, data, sizeof(e));
+	memcpy(&e, data, sizeof(e));
 
 	if (csv) {
 		//reverse map the command
-		printf("%s,%d,%d,%d,0x%llx,%lld,%s,%s\n", e.task, e.pid, e.server_retval, e.num_rqst,
-		       e.session_id, e.connection_id, get_smb_command(e.smbcommand), "e.commandargs");
+		printf("%s,%d,%d,%d,0x%llx,%lld,%s,%s\n", e.task, e.pid, e.server_retval,
+		       e.num_rqst, e.session_id, e.connection_id, get_smb_command(e.smbcommand),
+		       e.commandargs);
 		return;
 	}
 
-    printf("%-14s %-7d %-10d %-10d 0x%-23llx %-12lld %16s %30s\n", e.task, e.pid, e.server_retval,
-           e.num_rqst, e.session_id, e.connection_id, get_smb_command(e.smbcommand), "e.commandargs");
-
+	printf("%-14s %-7d %-10d %-10d 0x%-23llx %-8lld %-16s %30s\n", e.task, e.pid,
+	       e.server_retval, e.num_rqst, e.session_id, e.connection_id,
+	       get_smb_command(e.smbcommand), e.commandargs);
 }
 
 static struct timespec get_end_time_from_duration()
@@ -339,5 +341,3 @@ cleanup:
 
 	return err != 0;
 }
-
-

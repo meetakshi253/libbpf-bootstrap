@@ -1,9 +1,9 @@
 #ifndef __SMBIOSNOOP_H
 #define __SMBIOSNOOP_H
 
-#define TASK_COMM_LEN	   16
-#define MAX_SMB_BUFFER_LEN 50
-#define MAX_ARGS_LENGTH   128
+#define TASK_COMM_LEN	16
+#define MAX_ARGS_LENGTH 180
+#define MAX_PATH_LENGTH 120
 
 /* command codes in host endian */
 #define SMB2_NEGOTIATE			   0x0000
@@ -18,6 +18,7 @@
 #define SMB2_WRITE			   0x0009
 #define SMB2_LOCK			   0x000A
 #define SMB2_IOCTL			   0x000B
+
 #define SMB2_CANCEL			   0x000C
 #define SMB2_ECHO			   0x000D
 #define SMB2_QUERY_DIRECTORY		   0x000E
@@ -27,17 +28,20 @@
 #define SMB2_OPLOCK_BREAK		   0x0012
 #define SMB2_SERVER_TO_CLIENT_NOTIFICATION 0x0013
 
+struct index {
+	unsigned long long connection_id;
+	unsigned long long session_id;
+	unsigned long long mid;
+};
 struct event {
 	pid_t pid;
 	int server_retval;
-	int num_rqst;
+	int num_rqst : 4;
 	unsigned long long connection_id;
 	unsigned short smbcommand;
 	unsigned long long session_id;
 	char commandargs[MAX_ARGS_LENGTH];
 	char task[TASK_COMM_LEN];
-	__u8 Buffer[MAX_SMB_BUFFER_LEN];
-	int namelen;
 };
 
 #endif /* __SMBIOSNOOP_H */
