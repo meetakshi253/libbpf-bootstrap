@@ -258,7 +258,7 @@ int BPF_PROG(trace_file_lock_exit, struct file *file, int cmd, struct file_lock 
 				  BPF_CORE_READ(file, f_path.dentry, d_iname));
 
 	__u64 argdata[] = {
-		BPF_CORE_READ(file, f_inode, i_ino), cmd,	   flock->fl_end, flock->fl_start,
+		BPF_CORE_READ(file, f_inode, i_ino), cmd, flock->fl_end, flock->fl_start,
 		BPF_CORE_READ(cfile, oplock_level),  (u64)filename
 	};
 
@@ -280,7 +280,7 @@ int BPF_PROG(trace_file_flock_exit, struct file *file, int cmd, struct file_lock
 				  BPF_CORE_READ(file, f_path.dentry, d_iname));
 
 	__u64 argdata[] = {
-		BPF_CORE_READ(file, f_inode, i_ino), cmd,	   flock->fl_end, flock->fl_start,
+		BPF_CORE_READ(file, f_inode, i_ino), cmd, flock->fl_end, flock->fl_start,
 		BPF_CORE_READ(cfile, oplock_level),  (u64)filename
 	};
 

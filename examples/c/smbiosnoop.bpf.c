@@ -19,7 +19,6 @@ struct {
 	__uint(value_size, sizeof(__u32));
 } events SEC(".maps");
 
-//eBPF verifier loves to complain about the stack limit, so we use a per_cpu_array to store the arguments for each smbcommand
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__uint(key_size, sizeof(__u32));
