@@ -18,6 +18,16 @@ struct {
 	__uint(value_size, sizeof(__u32));
 } events SEC(".maps");
 
+static inline int PTR_ERR(const void *ptr)
+{
+	return (int)ptr;
+}
+
+static inline bool IS_ERR_OR_NULL(const void *ptr)
+{
+	return !ptr || IS_ERR_VALUE((unsigned long)ptr);
+}
+
 static inline int trace_all_vfs_fexit(void *ctx, const char type[], const char fn_name[],
 				      const char argm[], int retval)
 {
@@ -80,7 +90,8 @@ int BPF_PROG(trace_super_free_inode_exit, struct inode *inode)
 	__u64 argdata[] = { BPF_CORE_READ(inode, i_ino) };
 	bpf_snprintf(args, sizeof(args), "inode=%llu", argdata, sizeof(argdata));
 	bpf_printk("args: %s\n", args);
-	return trace_all_vfs_fexit(ctx, "SUPER", STR(cifs_free_inode), args, 1);
+	return trace_all_vfs_fexit(ctx, "SUPER", STR(cifs_free_inode), args,
+				   0); // for ops with void return type, return 0
 }
 
 SEC("fexit/cifs_drop_inode")
@@ -100,7 +111,8 @@ int BPF_PROG(trace_super_evict_inode_exit, struct inode *inode)
 	__u64 argdata[] = { BPF_CORE_READ(inode, i_ino) };
 	bpf_snprintf(args, sizeof(args), "inode=%llu", argdata, sizeof(argdata));
 	bpf_printk("args: %s\n", args);
-	return trace_all_vfs_fexit(ctx, "SUPER", STR(cifs_evict_inode), args, 1);
+	return trace_all_vfs_fexit(ctx, "SUPER", STR(cifs_evict_inode), args,
+				   0); // for ops with void return type, return 0
 }
 
 SEC("fexit/cifs_show_devname")
@@ -136,7 +148,8 @@ int BPF_PROG(trace_super_show_options_exit, struct seq_file *s, struct dentry *r
 SEC("fexit/cifs_umount_begin")
 int BPF_PROG(trace_super_umount_begin_exit, struct super_block *sb)
 {
-	return trace_all_vfs_fexit(ctx, "SUPER", STR(cifs_umount_begin), "", 1);
+	return trace_all_vfs_fexit(ctx, "SUPER", STR(cifs_umount_begin), "",
+				   0); // for ops with void return type, return 0
 }
 
 SEC("fexit/cifs_freeze")
@@ -897,7 +910,7 @@ int BPF_PROG(trace_adspace_invalidate_folio_exit, struct folio *folio, size_t of
 	char args[MAX_ARGS_LENGTH] = {};
 	__u64 argdata[] = { offset, length };
 	bpf_snprintf(args, sizeof(args), "offset=%llu|length=%llu", argdata, sizeof(argdata));
-	return trace_all_vfs_fexit(ctx, "ADSPACE", STR(cifs_invalidate_folio), "args", 1);
+	return trace_all_vfs_fexit(ctx, "ADSPACE", STR(cifs_invalidate_folio), "args", 0);
 }
 
 SEC("fexit/cifs_launder_folio")
@@ -955,7 +968,7 @@ int BPF_PROG(trace_adspace_swap_deactivate_exit, struct file *file)
 		__u64 argdata[] = { BPF_CORE_READ(cfile, oplock_level), (u64)filename };
 		bpf_snprintf(args, sizeof(args), "oplock=%llu|dname=%s", argdata, sizeof(argdata));
 	}
-	return trace_all_vfs_fexit(ctx, "ADSPACE", STR(cifs_swap_deactivate), args, 1);
+	return trace_all_vfs_fexit(ctx, "ADSPACE", STR(cifs_swap_deactivate), args, 0);
 }
 
 /* fexit Inode VFS callbacks for CIFS */
@@ -1154,10 +1167,11 @@ int BPF_PROG(trace_inode_listxattr_exit, struct dentry *dentry, char *data, size
 }
 
 SEC("fexit/cifs_get_acl")
-int BPF_PROG(trace_inode_get_acl_exit, struct mnt_idmap *idmap, struct dentry *dentry, int type)
+int BPF_PROG(trace_inode_get_acl_exit, struct mnt_idmap *idmap, struct dentry *dentry, int type,
+	     struct posix_acl *retval)
 {
-	// legacy op. what to return?? EOPNOTSUPP
-	return trace_all_vfs_fexit(ctx, "INODE", STR(cifs_get_acl), "", 1);
+	// legacy op
+	return trace_all_vfs_fexit(ctx, "INODE", STR(cifs_get_acl), "", IS_ERR_OR_NULL(retval) ? PTR_ERR(retval) : 0);
 }
 
 SEC("fexit/cifs_set_acl")
@@ -1193,5 +1207,6 @@ int BPF_PROG(trace_inode_get_link_exit, struct dentry *dentry, struct inode *ino
 		bpf_snprintf(args, sizeof(args), "returnTargetPath=%s|inode=%llu|dname=%s", argdata,
 			     sizeof(argdata));
 	}
-	return trace_all_vfs_fexit(ctx, "INODE", STR(cifs_get_link), args, 1);
+	return trace_all_vfs_fexit(ctx, "INODE", STR(cifs_get_link), args,
+				   IS_ERR_OR_NULL(retval) ? PTR_ERR(retval) : 0);
 }
