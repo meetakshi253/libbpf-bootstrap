@@ -4,6 +4,8 @@
 #define __SMBDIAG_H
 
 #define TASK_COMM_LEN	 16
+#define MAX_SMB_COMMANDS	20
+#define MAX_ENTRIES 2048
 
 #define SMBSLOWER 0
 
@@ -13,23 +15,23 @@ union metrics {
 };
 
 struct partial_event {
-	unsigned long long session_id;
-	unsigned long long mid;	
-	unsigned short smbcommand;
+	__u64 session_id;
+	__u64 mid;	
+	__u16 smbcommand;
 	union metrics metric;
-	char is_compounded;
+	__u8 is_compounded;
 };
 
 struct event {
 	pid_t pid;
-	unsigned long long cmd_end_time_ns;
-	unsigned long long session_id;
-	unsigned long long mid;
-	unsigned short smbcommand;
+	__u64 cmd_end_time_ns;
+	__u64 session_id;
+	__u64 mid;
+	__u16 smbcommand;
 	union metrics metric;
-	char tool;
-	char is_compounded;
-	char task[TASK_COMM_LEN];
+	__u8 tool;
+	__u8 is_compounded;
+	__u8 task[TASK_COMM_LEN];
 };
 
 #endif /* __SMBDIAG_H */
