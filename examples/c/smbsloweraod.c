@@ -7,22 +7,18 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-// #include "shm_writer.h"
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 
-#include "smbdiag.h"
+#include "shm_writer.h"
 #include "smbsloweraod.skel.h"
 
 #define NSEC_PER_SEC	     1000000000LL
 #define warn(...)	     fprintf(stderr, __VA_ARGS__)
-#define SHM_NAME	     "/bpf_shm"
-#define SHM_SIZE	     MAX_ENTRIES * 4096 /* should always be a multiple of the page size because our ring buffer is */
-
 
 static volatile sig_atomic_t exiting = 0;
-// static struct shm_ringbuf *shm_ptr;
+static struct shm_ringbuf *shm_ptr;
 
 static time_t duration = 0;
 static __u64 min_lat_ms = 10;
@@ -219,7 +215,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	printf("%d %s %d %lld %lld %llx %d\n", e->pid, e->task, e->smbcommand, e->mid, e->cmd_end_time_ns, e->session_id, e->is_compounded);	
-	// write_event(shm_ptr, e);
+	printf("writing to shared memory");
+	if (shm_ringbuf_write(shm_ptr, e)< 0 ) {
+		fprintf(stderr, "Failed to write event to shared memory\n");
+		return -1; // Not enough space
+	}
 	/* We have opened shared memory here between the python event dispatcher and this program */
 
 	return 0;
@@ -294,11 +294,11 @@ int main(int argc, char **argv)
 	}
 
 	/* Open shared memory */
-	// int shm_fd = init_shared_memory(SHM_NAME, SHM_SIZE, &shm_ptr);
-	// if (shm_fd < 0) {
-	// 	fprintf(stderr, "Shared memory init failed from C program\n");
-	// 	goto cleanup_shm;
-	// }
+	int shm_fd = init_shared_memory(SHM_NAME, SHM_SIZE, &shm_ptr);
+	if (shm_fd < 0) {
+		fprintf(stderr, "Shared memory init failed from C program\n");
+		goto cleanup_shm;
+	}
 
 	err = smbsloweraod_bpf__attach(skel);
 	if(err) {
@@ -321,21 +321,21 @@ int main(int argc, char **argv)
 		err = ring_buffer__poll(rb, 5); /* wait only for 5ms to collect other events */
 		if (err < 0 && err != -EINTR) {
 			printf("error polling the ring buffer: %d\n", err);
-			goto cleanup;
+			goto cleanup_shm;
 		}
 		if (duration) {
 			clock_gettime(CLOCK_REALTIME, &current_time);
 			double elapsed_seconds = difftime(current_time.tv_sec, end_time.tv_sec);
 			if (elapsed_seconds > 0)
-				goto cleanup;
+				goto cleanup_shm;
 		}
 		/* reset err to return 0 if exiting */
 		err = 0;
 	}
 
 cleanup_shm:
-	// munmap(shm_ptr, SHM_SIZE);
-	// close(shm_fd);
+	munmap(shm_ptr, SHM_SIZE);
+	close(shm_fd);
 cleanup:
 	ring_buffer__free(rb);
 	smbsloweraod_bpf__destroy(skel);

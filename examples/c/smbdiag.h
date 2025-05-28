@@ -9,29 +9,31 @@
 
 #define SMBSLOWER 0
 
+#include <sys/types.h>
+
 union metrics {
 	unsigned long long latency_ns;
 	int retval;
 };
 
 struct partial_event {
-	__u64 session_id;
-	__u64 mid;	
-	__u16 smbcommand;
+	unsigned long long session_id;
+	unsigned long long mid;	
+	unsigned short smbcommand;
 	union metrics metric;
-	__u8 is_compounded;
+	char is_compounded;
 };
 
 struct event {
 	pid_t pid;
-	__u64 cmd_end_time_ns;
-	__u64 session_id;
-	__u64 mid;
-	__u16 smbcommand;
+	unsigned long long cmd_end_time_ns;
+	unsigned long long session_id;
+	unsigned long long mid;
+	unsigned short smbcommand;
 	union metrics metric;
-	__u8 tool;
-	__u8 is_compounded;
-	__u8 task[TASK_COMM_LEN];
+	char tool;
+	char is_compounded;
+	char task[TASK_COMM_LEN];
 };
 
 #endif /* __SMBDIAG_H */
