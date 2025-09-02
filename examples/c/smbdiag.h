@@ -9,8 +9,6 @@
 
 #define SMBSLOWER 0
 
-#include <sys/types.h>
-
 union metrics {
 	unsigned long long latency_ns;
 	int retval;

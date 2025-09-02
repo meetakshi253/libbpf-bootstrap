@@ -81,3 +81,4 @@ int shm_ringbuf_write(struct shm_ringbuf *buf, const struct event *e) {
     buf->head = (head + len);
     printf("Wrote event to shared memory: head=%zu, tail=%zu\n", buf->head, buf->tail);
     return 0;
+}
