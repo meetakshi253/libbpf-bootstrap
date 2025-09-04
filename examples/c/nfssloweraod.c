@@ -12,9 +12,9 @@
 #include <bpf/bpf.h>
 
 #include "shm_writer.h"
-#include "smbdiag.h"
+#include "nfsdiag.h"
 #include "cmdtranslator.h"
-#include "smbsloweraod.skel.h"
+#include "nfssloweraod.skel.h"
 
 #define NSEC_PER_SEC	     1000000000LL
 #define warn(...)	     fprintf(stderr, __VA_ARGS__)
@@ -27,18 +27,16 @@ static __u64 min_lat_ms = 10;
 static __u64 wakeup_data_size = 0; /* used to wake up the user space handler */
 
 static bool include_mode = false, exclude_mode = false;
-static __u8 cmd_filter[MAX_SMB_COMMANDS] = {0};
+static __u8 cmd_filter[MAX_NFS_COMMANDS] = {0};
 
-const char *argp_program_version = "smbslower 0.1";
+const char *argp_program_version = "nfssloweraod 0.1";
 const char *argp_program_bug_address = "https://github.com/iovisor/bcc/tree/master/libbpf-tools";
 
 static const struct argp_option opts[] = {
 	{ "wakeupsize", 'w', "WAKEUPSIZE", 0, "Wake up the userspace handler" },
 	{ "duration", 'd', "DURATION", 0, "Total duration of trace in seconds" },
-	{ "include-cmds", 'c', "INCLUDE", 0, "Allowed SMB commands to trace" },
-	{ "exclude-cmds", 'x', "EXCLUDE", 0, "SMB commands to exclude from tracing"},
 	{ "min", 'm', "MIN", 0, "Min latency to trace, in ms (default 10)" },
-	{ NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help" },
+    { NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help" },
 	{},
 };
 
@@ -51,7 +49,7 @@ static int parse_cmd_list(const char *arg, int max_cmds) {
 	char *token = strtok(input, ",");
 	while (token != NULL && count < max_cmds) {
 		int cmd = (__u16)atoi(token);
-		if (cmd >= 0 && cmd < MAX_SMB_COMMANDS) {
+		if (cmd >= 0 && cmd < MAX_NFS_COMMANDS) {
 			cmd_filter[cmd] = 1;
 			count++;
 			token = strtok(NULL, ",");
@@ -61,6 +59,7 @@ static int parse_cmd_list(const char *arg, int max_cmds) {
 	free(input);
 	return count;
 }
+
 
 static error_t parse_arg(int key, char *arg, struct argp_state *state)
 {
@@ -89,7 +88,7 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 		}
 		include_mode = true;
 		printf("Include mode enabled, parsing commands: %s\n", arg);
-		int err = parse_cmd_list(arg, MAX_SMB_COMMANDS);
+		int err = parse_cmd_list(arg, MAX_NFS_COMMANDS);
 		if (err < 0) {
 			warn("Failed to parse include commands: %s\n", arg);
 			argp_usage(state);
@@ -107,7 +106,7 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 		}
 		exclude_mode = true;
 		printf("Exclude mode enabled, parsing commands: %s\n", arg);
-		err = parse_cmd_list(arg, MAX_SMB_COMMANDS);
+		err = parse_cmd_list(arg, MAX_NFS_COMMANDS);
 		if (err < 0) {
 			warn("Failed to parse exclude commands: %s\n", arg);
 			argp_usage(state);
@@ -140,25 +139,23 @@ static const struct argp argp = {
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-	if (level == LIBBPF_DEBUG)
-		return 0;
 	return vfprintf(stderr, format, args);
 }
 
-static void sig_int(int signo)
+void sig_int(int signo)
 {
-	exiting = 1;
+    exiting = 1;
 }
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
-	const struct event *e = data;
-	if (data_sz < sizeof(e)) {
-		printf("Error: packet too small\n");
+    const struct event *e = data;
+    if (data_sz < sizeof(e)) {
+        printf("Error: packet too small\n");
 		return 0;
-	}
+    }
 
-	printf("%d %s %d %lld %lld\n", e->pid, e->task, e->command, e->mid, e->cmd_end_time_ns);	
+    printf("%d %s %d %lld %lld\n", e->pid, e->task, e->command, e->mid, e->cmd_end_time_ns);	
 	printf("writing to shared memory");
 	if (shm_ringbuf_write(shm_ptr, e) < 0) {
 		fprintf(stderr, "Failed to write event to shared memory\n");
@@ -166,12 +163,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 	/* We have opened shared memory here between the python event dispatcher and this program */
 
-	return 0;
+    return 0;
 }
 
 static struct timespec get_end_time_from_duration()
 {
-	struct timespec end_time, start_time;
+    struct timespec end_time, start_time;
 	clock_gettime(CLOCK_REALTIME, &start_time);
 	long long duration_ns = (long long)duration * NSEC_PER_SEC;
 	end_time.tv_sec = start_time.tv_sec + duration_ns / NSEC_PER_SEC;
@@ -184,8 +181,8 @@ static struct timespec get_end_time_from_duration()
 	return end_time;
 }
 
-int update_denylist_map(struct smbsloweraod_bpf *skel) {
-	for (__u16 cmd = 0; cmd < MAX_SMB_COMMANDS; cmd ++) {
+int update_denylist_map(struct nfssloweraod_bpf *skel) {
+	for (__u16 cmd = 0; cmd < MAX_NFS_COMMANDS; cmd ++) {
 		bool deny = false;
 		if (exclude_mode && cmd_filter[cmd]) deny = true;
 		else if (include_mode && !cmd_filter[cmd]) deny = true;
@@ -203,31 +200,31 @@ int update_denylist_map(struct smbsloweraod_bpf *skel) {
 
 int main(int argc, char **argv)
 {
-	struct ring_buffer *rb = NULL;
-	struct smbsloweraod_bpf *skel;
-	struct timespec end_time, current_time;
+    struct ring_buffer *rb = NULL;
+    struct nfssloweraod_bpf *skel;
+    struct timespec end_time, current_time;
 	int err;
 
-	err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+    err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (err) return err;
-	
-	libbpf_set_print(libbpf_print_fn);
+
+    libbpf_set_print(libbpf_print_fn);
 
 	/* Cleaner handling of Ctrl-C */
 	signal(SIGINT, sig_int);
 	signal(SIGTERM, sig_int);
 
-	skel = smbsloweraod_bpf__open();
-	if (!skel) {
-		fprintf(stderr, "Failed to open and load BPF skeleton\n");
-		return 1;
-	}
+    skel = nfssloweraod_bpf__open();
+    if (!skel) {
+        fprintf(stderr, "Failed to open and load BPF skeleton\n");
+        return 1;
+    }
 
-	skel->rodata->min_lat_ns = min_lat_ms * 1000 * 1000;
-	skel->rodata->wakeup_data_size = wakeup_data_size;
+    skel->rodata->min_lat_ns = min_lat_ms * 1000 * 1000;
+    skel->rodata->wakeup_data_size = wakeup_data_size;
 
-	err = smbsloweraod_bpf__load(skel);
-	if (err) {
+    err = nfssloweraod_bpf__load(skel);
+    if (err) {
 		fprintf(stderr, "Failed to load and verify BPF skeleton\n");
 		goto cleanup;
 	}
@@ -244,11 +241,11 @@ int main(int argc, char **argv)
 		goto cleanup_shm;
 	}
 
-	err = smbsloweraod_bpf__attach(skel);
-	if(err) {
-		fprintf(stderr, "Failed to attach BPF skeleton\n");
-		goto cleanup_shm;
-	}
+    err = nfssloweraod_bpf__attach(skel);
+    if (err) {
+        fprintf(stderr, "Failed to attach BPF skeleton\n");
+        goto cleanup;
+    }
 
 	int map_fd = bpf_obj_get(RINGBUF_PINNED);
     if (map_fd < 0) {
@@ -257,42 +254,40 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
-	// need to edit size also
-	rb = ring_buffer__new(map_fd, handle_event, NULL, NULL);
-	if (!rb) {
-		err = -1;
-		fprintf(stderr, "Failed to create ring buffer\n");
-		goto cleanup_shm;
-	}
+    rb = ring_buffer__new(map_fd, handle_event, NULL, NULL);
+    if (!rb) {
+        err = -1;
+        fprintf(stderr, "Failed to create ring buffer\n");
+        goto cleanup;
+    }
 
-	if (duration) end_time = get_end_time_from_duration();
+    if (duration) end_time = get_end_time_from_duration();
 
-	/* Poll */
-	while (!exiting) {
-		err = ring_buffer__poll(rb, 5); /* wait only for 5ms to collect other events */
-		if (err < 0 && err != -EINTR) {
-			printf("error polling the ring buffer: %d\n", err);
-			goto cleanup_shm;
-		}
-		if (duration) {
-			clock_gettime(CLOCK_REALTIME, &current_time);
+    while (!exiting) {
+        err = ring_buffer__poll(rb, 5 /* timeout, ms */);
+        if (err < 0 && err != -EINTR) {
+            fprintf(stderr, "Error polling ring buffer: %d\n", err);
+            goto cleanup;
+        }
+        if (duration) {
+            clock_gettime(CLOCK_REALTIME, &current_time);
 			double elapsed_seconds = difftime(current_time.tv_sec, end_time.tv_sec);
 			if (elapsed_seconds > 0)
-				goto cleanup_shm;
-		}
-		/* reset err to return 0 if exiting */
-		err = 0;
-	}
+                goto cleanup;
+        }
+        err = 0;
+    }
 
 cleanup_shm:
 	munmap(shm_ptr, SHM_SIZE);
 	close(shm_fd);
 cleanup:
-	if (rb)
+    if (rb)
 		ring_buffer__free(rb);
 	if (map_fd >= 0)
 		close(map_fd);
-	smbsloweraod_bpf__destroy(skel);
+    nfssloweraod_bpf__destroy(skel);
 
-	return err < 0 ? -err : 0;
+    return err < 0 ? -err : 0;
 }
+

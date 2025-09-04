@@ -3,7 +3,7 @@
 
 #include <sys/mman.h>
 #include <stddef.h>
-#include "smbdiag.h"
+#include "aoddiag.h"
 
 #define SHM_NAME "/bpf_shm"
 #define SHM_SIZE ((MAX_ENTRIES + 1) * 4096) // should always be a multiple of the page size
