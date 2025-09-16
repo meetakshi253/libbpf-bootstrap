@@ -18,6 +18,7 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' \
 			 | sed 's/loongarch64/loongarch/')
 VMLINUX := ../../vmlinux/$(ARCH)/vmlinux.h
 VMLINUX_CIFS := ../../vmlinux/$(ARCH)/vmlinuxcifs.h
+VMLINUX_NFS4 := ../../vmlinux/$(ARCH)/vmlinux_nfsv4.h
 # Use our own libbpf API headers and Linux UAPI headers distributed with
 # libbpf to avoid dependency on system-wide headers, which could be missing or
 # outdated
@@ -26,7 +27,7 @@ CFLAGS := -g -Wall
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 
 APPS = minimal minimal_legacy minimal_ns bootstrap uprobe kprobe fentry \
-       usdt sockfilter tc ksyscall task_iter lsm smbslower smbvfsslower smbvfsiosnoop smbiosnoop
+       usdt sockfilter tc ksyscall task_iter lsm smbslower smbvfsslower smbvfsiosnoop smbiosnoop smbsloweraod minimalextern nfssloweraod
 
 CARGO ?= $(shell which cargo)
 ifeq ($(strip $(CARGO)),)
@@ -123,6 +124,14 @@ $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
 
+$(OUTPUT)/shm_writer.o: shm_writer.c shm_writer.h | $(OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(OUTPUT)/cmdtranslator.o: cmdtranslator.c cmdtranslator.h | $(OUTPUT)
+	$(call msg,CC,$@)
+	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
 $(patsubst %,$(OUTPUT)/%.o,$(BZS_APPS)): $(LIBBLAZESYM_OBJ)
 
 $(BZS_APPS): $(LIBBLAZESYM_OBJ)
@@ -131,6 +140,18 @@ $(BZS_APPS): $(LIBBLAZESYM_OBJ)
 $(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+
+SMBSLOWERAOD_OBJS := $(OUTPUT)/smbsloweraod.o $(OUTPUT)/shm_writer.o $(OUTPUT)/cmdtranslator.o
+NFSSLOWERAOD_OBJS := $(OUTPUT)/nfssloweraod.o $(OUTPUT)/shm_writer.o $(OUTPUT)/cmdtranslator.o
+
+smbsloweraod: $(SMBSLOWERAOD_OBJS) $(LIBBPF_OBJ) | $(OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -lrt -o $@
+
+nfssloweraod: $(NFSSLOWERAOD_OBJS) $(LIBBPF_OBJ) | $(OUTPUT)
+	$(call msg,BINARY,$@)
+	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -lrt -o $@
 
 # delete failed targets
 .DELETE_ON_ERROR:
