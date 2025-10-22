@@ -18,10 +18,11 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' \
 			 | sed 's/loongarch64/loongarch/')
 VMLINUX := ../../vmlinux/$(ARCH)/vmlinux.h
 VMLINUX_CIFS := ../../vmlinux/$(ARCH)/vmlinuxcifs.h
+VMLINUX_NFS := ../../vmlinux/$(ARCH)/vmlinuxnfs.h
 # Use our own libbpf API headers and Linux UAPI headers distributed with
 # libbpf to avoid dependency on system-wide headers, which could be missing or
 # outdated
-INCLUDES := -I$(OUTPUT) -I../../libbpf/include/uapi -I$(dir $(VMLINUX)) -I$(dir $(VMLINUX_CIFS)) -I$(LIBBLAZESYM_INC)
+INCLUDES := -I$(OUTPUT) -I../../libbpf/include/uapi -I$(dir $(VMLINUX)) -I$(dir $(VMLINUX_CIFS)) -I$(dir $(VMLINUX_NFS)) -I$(LIBBLAZESYM_INC)
 CFLAGS := -g -Wall
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 

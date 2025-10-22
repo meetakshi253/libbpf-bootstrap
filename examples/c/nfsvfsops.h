@@ -1,3 +1,8 @@
+#define FILE 100
+#define INODE 101
+#define SUPER 102
+#define ADSPACE 103
+
 /* File Operation Callbacks */
 #define nfs_file_read 1
 #define nfs_file_write 2
@@ -25,7 +30,7 @@
 #define nfs_permission 20
 #define nfs_getattr 21
 #define nfs_setattr 22
-#define nfs4_listxattr 23
+#define nfs4_listxattr 23   // probably not needed
 
 // dir
 #define nfs_create 24

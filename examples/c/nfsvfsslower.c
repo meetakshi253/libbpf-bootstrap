@@ -33,16 +33,18 @@ static bool super_ops = false;
 static __u64 min_lat_ms = 10;
 static bool csv = false;
 static bool nfsdiagnostics = false;
+static int log_capture_timeout = 0;
 static bool capturenetwork = false;
 static char *nfsdiagnostics_path = "./nfsdiagnostics.sh";
-static volatile int nfsdiagnostics_pid = -1;
+static int nfsdiagnostics_pid = -1;
+static time_t nfsdiagnostics_end_time = 0;
 
 const char *argp_program_version = "nfsvfsslower 1.0";
 const char *argp_program_bug_address = "https://github.com/iovisor/bcc/tree/master/libbpf-tools";
 const char argp_program_doc[] =
 	"Trace function args and return values from SMB VFS callbacks.\n"
 	"\n"
-	"Usage: smbvfsiosnoop [-h] [-l] [-t PID] [-d DURATION] [-i] [-j] [--inode] [--adspace] [--super] [--file] [--capturenetwork]\n"
+	"Usage: smbvfsiosnoop [-h] [-l TIMEOUT] [-t PID] [-d DURATION] [-i] [-j] [--inode] [--adspace] [--super] [--file] [--capturenetwork]\n"
 	"\n"
 	"EXAMPLES:\n"
 	"    smbvfsiosnoop --file		               			# trace args and retvals of smb vfs callbacks for file ops\n"
@@ -58,7 +60,7 @@ static const struct argp_option opts[] = {
     { "duration", 'd', "DURATION", 0, "Total duration of trace in seconds" },
     { "min", 'm', "MIN", 0, "Min latency to trace, in ms (default 10)" },
     { "pid", 'p', "PID", 0, "Process ID to trace" },
-    { "log capture", 'l', NULL, 0, "Capture nfsdiagnostics logs" },
+    { "log capture", 'l', "TIMEOUT", 0, "Capture nfsdiagnostics logs with a timeout in seconds in between subsequent captures" },
     { "capturenetwork", 'n', NULL, 0, "Capture network traffic via nfsdiagnostics" },
     { NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help" },
     {},
@@ -107,6 +109,12 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'l':
+        errno = 0;
+        log_capture_timeout = strtol(arg, NULL, 10);
+        if (errno || log_capture_timeout <= 0) {
+            warn("invalid TIMEOUT: %s\n", arg);
+            argp_usage(state);
+        }
         nfsdiagnostics = true;
         break;
     case 'n':
@@ -179,6 +187,7 @@ static int stop_nfsdiagnostics()
         waitpid(nfsdiagnostics_pid, NULL, 0);
         printf("nfs diagnostics with PID %d stopped at time %ld\n", nfsdiagnostics_pid, time(NULL));
         nfsdiagnostics_pid = -1;
+        nfsdiagnostics_end_time = time(NULL);
     }
     return old_pid;
 }
@@ -198,9 +207,14 @@ static int file_callbacks_set_attach_target(struct nfsvfsslower_bpf *obj)
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_flock_entry, 0, "nfs_flock");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_file_splice_read_entry, 0, "generic_file_splice_read");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_iter_file_splice_write_entry, 0, "iter_file_splice_write");
-    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_check_flags_exit, 0, "nfs_check_flags");
-    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_nfs4_setlease_exit, 0, "nfs4_setlease");
-    err? perror("set attach target"):NULL;;
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_check_flags_entry, 0, "nfs_check_flags");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_nfs4_setlease_entry, 0, "nfs4_setlease");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_llseek_dir_entry, 0, "nfs_llseek_dir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_generic_read_dir_entry, 0, "generic_read_dir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_readdir_entry, 0, "nfs_readdir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_opendir_entry, 0, "nfs_opendir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_closedir_entry, 0, "nfs_closedir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_fsync_dir_entry, 0, "nfs_fsync_dir");
 
     // exit probes
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_read_exit, 0, "nfs_file_read");
@@ -216,8 +230,50 @@ static int file_callbacks_set_attach_target(struct nfsvfsslower_bpf *obj)
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_iter_file_splice_write_exit, 0, "iter_file_splice_write");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_check_flags_exit, 0, "nfs_check_flags");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_nfs4_setlease_exit, 0, "nfs4_setlease");
-    err? perror("set attach target exit"):NULL;;
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_llseek_dir_exit, 0, "nfs_llseek_dir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_generic_read_dir_exit, 0, "generic_read_dir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_readdir_exit, 0, "nfs_readdir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_opendir_exit, 0, "nfs_opendir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_closedir_exit, 0, "nfs_closedir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_fsync_dir_exit, 0, "nfs_fsync_dir");
+    err? perror("set attach target file"):NULL;;
 
+    return err;
+}
+
+static int inode_callbacks_set_attach_target(struct nfsvfsslower_bpf *obj)
+{
+    int err = 0;
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_permission_entry, 0, "nfs_permission");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_getattr_entry, 0, "nfs_getattr");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_setattr_entry, 0, "nfs_setattr");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_nfs4_listxattr_entry, 0, "nfs4_listxattr");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_create_entry, 0, "nfs_create");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_lookup_entry, 0, "nfs_lookup");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_atomic_open_entry, 0, "nfs_atomic_open");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_link_entry, 0, "nfs_link");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_unlink_entry, 0, "nfs_unlink");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_symlink_entry, 0, "nfs_symlink");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_mkdir_entry, 0, "nfs_mkdir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_rmdir_entry, 0, "nfs_rmdir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_mknod_entry, 0, "nfs_mknod");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_rename_entry, 0, "nfs_rename");
+
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_permission_exit, 0, "nfs_permission");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_getattr_exit, 0, "nfs_getattr");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_setattr_exit, 0, "nfs_setattr");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_nfs4_listxattr_exit, 0, "nfs4_listxattr");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_create_exit, 0, "nfs_create");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_lookup_exit, 0, "nfs_lookup");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_atomic_open_exit, 0, "nfs_atomic_open");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_link_exit, 0, "nfs_link");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_unlink_exit, 0, "nfs_unlink");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_symlink_exit, 0, "nfs_symlink");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_mkdir_exit, 0, "nfs_mkdir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_rmdir_exit, 0, "nfs_rmdir");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_mknod_exit, 0, "nfs_mknod");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_inode_rename_exit, 0, "nfs_rename");
+    err? perror("set attach target inode"):NULL;;
     return err;
 }
 
@@ -236,6 +292,12 @@ static void file_callbacks_disable_target(struct nfsvfsslower_bpf *obj)
     bpf_program__set_autoload(obj->progs.trace_file_iter_file_splice_write_entry, false);
     bpf_program__set_autoload(obj->progs.trace_file_check_flags_entry, false);
     bpf_program__set_autoload(obj->progs.trace_file_nfs4_setlease_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_file_llseek_dir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_file_generic_read_dir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_file_readdir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_file_opendir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_file_closedir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_file_fsync_dir_entry, false);
     
     bpf_program__set_autoload(obj->progs.trace_file_read_exit, false);
     bpf_program__set_autoload(obj->progs.trace_file_write_exit, false);
@@ -250,20 +312,70 @@ static void file_callbacks_disable_target(struct nfsvfsslower_bpf *obj)
     bpf_program__set_autoload(obj->progs.trace_file_iter_file_splice_write_exit, false);
     bpf_program__set_autoload(obj->progs.trace_file_check_flags_exit, false);
     bpf_program__set_autoload(obj->progs.trace_file_nfs4_setlease_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_file_llseek_dir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_file_generic_read_dir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_file_readdir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_file_opendir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_file_closedir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_file_fsync_dir_exit, false);
+}
+
+static void inode_callbacks_disable_target(struct nfsvfsslower_bpf *obj)
+{
+    bpf_program__set_autoload(obj->progs.trace_inode_permission_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_getattr_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_setattr_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_nfs4_listxattr_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_create_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_lookup_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_atomic_open_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_link_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_unlink_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_symlink_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_mkdir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_rmdir_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_mknod_entry, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_rename_entry, false);
+   
+    bpf_program__set_autoload(obj->progs.trace_inode_permission_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_getattr_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_setattr_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_nfs4_listxattr_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_create_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_lookup_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_atomic_open_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_link_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_unlink_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_symlink_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_mkdir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_rmdir_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_mknod_exit, false);
+    bpf_program__set_autoload(obj->progs.trace_inode_rename_exit, false);
 }
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
+    struct tm *tm;
+	char ts[32];
+	time_t t;
     const struct event *e = data;
 	if (data_sz < sizeof(e)) {
 		printf("Error: packet too small\n");
 		return 0;
 	}
 
-    syslog(LOG_ERR, "SLOW OPERATION! PID %ld COMM %s TYPE %s FUNC %d LATENCY(s) %f PATH %s RETVAL %d",
-           e->pid, e->task, e->type, e->function, (e->delta_us / (1000.0 * 1000.0)), e->path, e->retval);
+    time(&t);
+	tm = localtime(&t);
+	strftime(ts, sizeof(ts), "%H:%M:%S", tm);
 
-    stop_nfsdiagnostics();
+    syslog(LOG_ERR, "SLOW OPERATION! AT TIME %s PID %ld COMM %s TYPE %d FUNC %d LATENCY(s) %f PATH/FILEID %s RETVAL %d",
+           ts, e->pid, e->task, e->type, e->function, (e->delta_us / (1000.0 * 1000.0)), e->path, e->retval);
+    
+    // if the events are older than the timeout, we dont need to stop the capture because these are old events
+    if (nfsdiagnostics && nfsdiagnostics_pid > 0 && time(NULL) - t < 10) {
+        printf("stopping nfsdiagnostics capture due to slow operation event at time %ld\n", time(NULL));
+        stop_nfsdiagnostics();
+    }
     return 0;
 }
 
@@ -334,7 +446,15 @@ int main(int argc, char **argv)
         file_callbacks_disable_target(skel);
     }
 
-    //inode
+    if (inode_ops) {
+        err = inode_callbacks_set_attach_target(skel);
+        if (err) {
+            warn("failed to set (inode) attach target: %d\n", err);
+            goto cleanup;
+        }
+    } else {
+        inode_callbacks_disable_target(skel);
+    }
 
     //adspace
 
@@ -377,7 +497,8 @@ int main(int argc, char **argv)
 
     while (!exiting)
     {
-        if (nfsdiagnostics && nfsdiagnostics_pid < 0)
+        // start a new capture after it has been stopped for at least 30 seconds
+        if (nfsdiagnostics && nfsdiagnostics_pid < 0 && nfsdiagnostics_end_time >= 0 && time(NULL) - nfsdiagnostics_end_time >= log_capture_timeout)
         {
             printf("nfs diagnostics is stopped, starting again\n");
             err = start_nfsdiagnostics();
@@ -387,7 +508,7 @@ int main(int argc, char **argv)
             }
         }
 
-        err = ring_buffer__poll(rb, 5);
+        err = ring_buffer__poll(rb, 10000 /* timeout, ms */);
         if (err <0 && err != -EINTR) {
             warn("error polling perf buffer: %d\n", err);
             goto cleanup;
