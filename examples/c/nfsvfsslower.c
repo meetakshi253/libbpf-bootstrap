@@ -183,6 +183,7 @@ static int stop_nfsdiagnostics()
     return old_pid;
 }
 
+
 static int file_callbacks_set_attach_target(struct nfsvfsslower_bpf *obj)
 {
     int err = 0;
@@ -195,10 +196,11 @@ static int file_callbacks_set_attach_target(struct nfsvfsslower_bpf *obj)
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_fsync_entry, 0, "nfs_file_fsync");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_lock_entry, 0, "nfs_lock");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_flock_entry, 0, "nfs_flock");
-    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_file_splice_read_entry, 0, "nfs_file_splice_read");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_file_splice_read_entry, 0, "generic_file_splice_read");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_iter_file_splice_write_entry, 0, "iter_file_splice_write");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_check_flags_exit, 0, "nfs_check_flags");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_nfs4_setlease_exit, 0, "nfs4_setlease");
+    err? perror("set attach target"):NULL;;
 
     // exit probes
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_read_exit, 0, "nfs_file_read");
@@ -210,10 +212,11 @@ static int file_callbacks_set_attach_target(struct nfsvfsslower_bpf *obj)
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_fsync_exit, 0, "nfs_file_fsync");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_lock_exit, 0, "nfs_lock");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_flock_exit, 0, "nfs_flock");
-    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_file_splice_read_exit, 0, "nfs_file_splice_read");
+    err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_file_splice_read_exit, 0, "generic_file_splice_read");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_iter_file_splice_write_exit, 0, "iter_file_splice_write");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_check_flags_exit, 0, "nfs_check_flags");
     err = err   ?: bpf_program__set_attach_target(obj->progs.trace_file_nfs4_setlease_exit, 0, "nfs4_setlease");
+    err? perror("set attach target exit"):NULL;;
 
     return err;
 }
@@ -280,10 +283,12 @@ static struct timespec get_end_time_from_duration()
 	return end_time;
 }
 
-// static void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
-// {
-// 	warn("lost %llu events on CPU #%d\n", lost_cnt, cpu);
-// }
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
+{
+	if (level == LIBBPF_DEBUG)
+		return 0;
+	return vfprintf(stderr, format, args);
+}
 
 int main(int argc, char **argv)
 {
@@ -302,7 +307,7 @@ int main(int argc, char **argv)
     if (err)
         return err;
 
-    // libbpf_print_fn(libbpf_print_fn);
+    libbpf_set_print(libbpf_print_fn);
 
     skel = nfsvfsslower_bpf__open_opts(&open_opts);
     if (!skel) {

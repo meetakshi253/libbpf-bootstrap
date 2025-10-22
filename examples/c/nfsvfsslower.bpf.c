@@ -229,7 +229,7 @@ int BPF_PROG(trace_file_flock_exit, struct file *filp, int cmd, struct file_lock
 }
 
 SEC("fexit/nfs_file_splice_read")
-int BPF_PROG(trace_file_file_splice_read_exit, struct file *in, loff_t *ppos, struct pipe_inode_info *pipe, ssize_t retval) {
+int BPF_PROG(trace_file_file_splice_read_exit, struct file *in, loff_t *ppos, struct pipe_inode_info *pipe, size_t len, unsigned int flags, ssize_t retval) {
     // struct path file_path = BPF_CORE_READ(in, f_path);
     char path_buffer[MAX_PATH_LENGTH] = {};
     bpf_probe_read_kernel_str(&path_buffer, sizeof(path_buffer), BPF_CORE_READ(in, f_path.dentry, d_name.name));
