@@ -15,6 +15,7 @@ Ensure your target VM/computer/Kubernetes node has:
   ```bash
   ls /sys/kernel/btf/vmlinux
   ```
+- **nfsdiagnostics.sh**: before running the tool with nfsdiagnostics capture, make sure that all its dependencies are installed from [here](https://github.com/Azure-Samples/azure-files-samples/tree/master/NfsDiagnostics)
 - For building from source, see the [Building from Source](#building-and-running-nfsvfsslower-from-source) section
 
 ### Installation
@@ -29,13 +30,22 @@ Ensure your target VM/computer/Kubernetes node has:
 2. **Run the prebuilt binary:**
    ```bash
    cd examples/c
-   sudo ./nfsvfsslower --file --inode -l <cooldown> -m <latency_threshold_ms> --capturenetwork
+   sudo ./nfsvfsslower --file --inode -l <cooldown> -m <latency_threshold_seconds> --capturenetwork
    ```
 
 - **`--inode`** and **`--file`**: Trace inode and file operations (can use individually or together)
-- **`-m <threshold>`**: Set latency threshold in milliseconds (default: 10ms). When operations exceed this threshold, diagnostics capture stops and anomaly is logged to syslog
+- **`-m <threshold>`**: Set latency threshold in milliseconds (default: 10 seconds). When operations exceed this threshold, diagnostics capture stops and anomaly is logged to syslog
 - **`-l <cooldown>`**: Enable NFSdiagnostics capture with automatic restart capability. The cooldown period (in seconds) specifies the wait time between subsequent captures, after the previous capture ends when a latency threshold breach occurs.
 - **`--capturenetwork`**: Instruct `nfsdiagnostics.sh` script to collect network traffic via tcpdump
+
+3. **Stopping the tool and getting the logs**
+- Use Ctrl+C to stop the tool gracefully.
+- Logs will be saved in the current directory with timestamps for easy identification as "output_<timestamp>.zip".
+- To get the logs from syslog, you can use:
+  ```bash
+  sudo journalctl -t nfsvfsslower_logger > events.out
+  ```
+  Logs can be viewed in the `events.out` file.
 
 ## Building and Running NFSVFSSlower from Source
 
@@ -61,7 +71,7 @@ Ensure your target VM/computer/Kubernetes node has:
 
 3. **Run the compiled binary:**
    ```bash
-   sudo ./nfsvfsslower --file --inode -l <cooldown> -m <latency_threshold_ms> --capturenetwork
+   sudo ./nfsvfsslower --file --inode -l <cooldown> -m <latency_threshold_secondss> --capturenetwork
    ```
 
 ### Troubleshooting
