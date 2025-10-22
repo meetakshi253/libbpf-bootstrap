@@ -18,6 +18,7 @@
 #define PERF_BUFFER_PAGES    64
 #define PERF_POLL_TIMEOUT_MS 100
 #define NSEC_PER_SEC	     1000000000LL
+#define MSEC_PER_SEC	     1000LL
 
 #define warn(...)	     fprintf(stderr, __VA_ARGS__)
 
@@ -30,10 +31,10 @@ static bool inode_ops = false;
 static bool file_ops = false;
 static bool adspace_ops = false;
 static bool super_ops = false;
-static __u64 min_lat_ms = 10;
+static __u64 min_lat_ms = 10 * 1000; /* 10 seconds */
 static bool csv = false;
 static bool nfsdiagnostics = false;
-static int log_capture_timeout = 0;
+static int log_capture_timeout = 10;
 static bool capturenetwork = false;
 static char *nfsdiagnostics_path = "./nfsdiagnostics.sh";
 static int nfsdiagnostics_pid = -1;
@@ -42,14 +43,14 @@ static time_t nfsdiagnostics_end_time = 0;
 const char *argp_program_version = "nfsvfsslower 1.0";
 const char *argp_program_bug_address = "https://github.com/iovisor/bcc/tree/master/libbpf-tools";
 const char argp_program_doc[] =
-	"Trace function args and return values from SMB VFS callbacks.\n"
+	"Trace function args and return values from NFS VFS callbacks.\n"
 	"\n"
-	"Usage: smbvfsiosnoop [-h] [-l TIMEOUT] [-t PID] [-d DURATION] [-i] [-j] [--inode] [--adspace] [--super] [--file] [--capturenetwork]\n"
+	"Usage: nfsvfsslower [-h] [-l TIMEOUT] [-t PID] [-d DURATION] [-i] [-j] [--inode] [--adspace] [--super] [--file] [--capturenetwork]\n"
 	"\n"
 	"EXAMPLES:\n"
-	"    smbvfsiosnoop --file		               			# trace args and retvals of smb vfs callbacks for file ops\n"
-	"    smbvfsiosnoop --adspace -p 1216			   		# trace args and retvals of smb vfs callbacks for address space ops for PID 1216 only\n"
-	"    smbvfsiosnoop -d 10 -j --inode --super		        # trace args and retvals of smb vfs callbacks for 10s with csv output, inode and superblock ops only\n";
+	"    nfsvfsslower --file		               			# trace args and retvals of nfs vfs callbacks for file ops\n"
+	"    nfsvfsslower --inode -p 1216			   		# trace args and retvals of nfs vfs callbacks for address space ops for PID 1216 only\n"
+	"    nfsvfsslower -d 10 -j --inode --file		        # trace args and retvals of nfs vfs callbacks for 10s with csv output, inode and file ops only\n";
 
 static const struct argp_option opts[] = {
     { "csv", 'j', NULL, 0, "Output as csv" },
@@ -58,9 +59,9 @@ static const struct argp_option opts[] = {
     { "super", 's', NULL, 0, "Trace superblock ops" },
     { "adspace", 'a', NULL, 0, "Trace address space ops" },
     { "duration", 'd', "DURATION", 0, "Total duration of trace in seconds" },
-    { "min", 'm', "MIN", 0, "Min latency to trace, in ms (default 10)" },
+    { "min", 'm', "MIN", 0, "Min latency to trace, in seconds (default 10)" },
     { "pid", 'p', "PID", 0, "Process ID to trace" },
-    { "log capture", 'l', "TIMEOUT", 0, "Capture nfsdiagnostics logs with a timeout in seconds in between subsequent captures" },
+    { "log capture", 'l', "COOLDOWN", 0, "Capture nfsdiagnostics logs with a cooldown in seconds in between subsequent captures" },
     { "capturenetwork", 'n', NULL, 0, "Capture network traffic via nfsdiagnostics" },
     { NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help" },
     {},
@@ -94,7 +95,7 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
         break;
     case 'm':
         errno = 0;
-        min_lat_ms = strtoll(arg, NULL, 10);
+        min_lat_ms = strtoll(arg, NULL, 10) * MSEC_PER_SEC;
         if (errno || min_lat_ms < 0) {
             warn("invalid latency (in ms): %s\n", arg);
             argp_usage(state);
